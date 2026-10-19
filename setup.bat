@@ -63,12 +63,12 @@ echo.
 
 :: 检查并准备账户配置文件（.env 环境变量方式）
 if not exist ".env" (
-    if exist "env.example" (
+    if exist ".env.example" (
         echo 正在创建账户配置文件...
-        copy "env.example" ".env"
+        copy ".env.example" ".env"
         echo 已创建.env文件，请在运行脚本前编辑此文件填入您的账户信息。
     ) else (
-        echo 警告：未找到env.example文件，请手动创建.env文件。
+        echo 警告：未找到.env.example文件，请手动创建.env文件。
     )
 ) else (
     echo .env文件已存在。

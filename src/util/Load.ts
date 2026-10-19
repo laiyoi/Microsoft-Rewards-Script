@@ -33,7 +33,7 @@ function resolveProjectFile(filename: string): string | undefined {
     return candidates.find(p => fs.existsSync(p))
 }
 
-function ensureEnvLoaded(): void {
+export function ensureEnvLoaded(): void {
     if (envLoaded) return
     envLoaded = true
 
@@ -137,6 +137,8 @@ export function loadAccounts(): Account[] {
                 totpSecret: envStr(`ACCOUNT_${index}_TOTP_SECRET`),
                 recoveryEmail: envStr(`ACCOUNT_${index}_RECOVERY_EMAIL`) ?? '',
                 geoLocale: envStr(`ACCOUNT_${index}_GEO_LOCALE`) ?? 'auto',
+                region: envStr(`ACCOUNT_${index}_REGION`),
+                proxyGroup: envStr(`ACCOUNT_${index}_PROXY_GROUP`),
                 langCode: envStr(`ACCOUNT_${index}_LANG_CODE`) ?? 'en',
                 proxy: buildProxy(index),
                 saveFingerprint: buildSaveFingerprint(index)
@@ -144,7 +146,7 @@ export function loadAccounts(): Account[] {
         }
 
         if (!accounts.length) {
-            throw new Error('No accounts found in environment. Set at least one ACCOUNT_N_EMAIL (see env.example).')
+            throw new Error('No accounts found in environment. Set at least one ACCOUNT_N_EMAIL (see .env.example).')
         }
 
         return validateAccounts(accounts)

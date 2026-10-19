@@ -20,6 +20,8 @@
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "test:log-parser": "node --test scripts/api/logParser.test.js",
+        "region:list": "node ./dist/util/Clash.js --list",
+        "region:switch": "node ./dist/util/Clash.js",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "clear-diagnostics": "rimraf diagnostics",

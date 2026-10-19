@@ -279,6 +279,8 @@ export const AccountSchema = z.object({
     totpSecret: z.string().optional(),
     recoveryEmail: z.string(),
     geoLocale: AccountCountrySchema,
+    region: z.string().trim().min(1).optional(),
+    proxyGroup: z.string().trim().min(1).optional(),
     langCode: AccountLanguageSchema,
     proxy: AccountProxySchema,
     saveFingerprint: z.object({

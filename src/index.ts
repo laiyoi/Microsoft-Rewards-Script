@@ -14,6 +14,8 @@ import type { PageSnapshot } from './browser/ReactFunc'
 import { IpcLog, Logger, formatLocalTimestamp } from './logging/Logger'
 import Utils, { isBrowserClosedError } from './util/Utils'
 import { loadAccounts, loadConfig } from './util/Load'
+import { applyRegionProxy, getClashConfig } from './util/Clash'
+import type { ClashConfig } from './util/Clash'
 import { closeSessionStore, loadResolvedRegion, saveResolvedRegion } from './util/SessionStore'
 import { checkNodeVersion } from './util/Validator'
 import { normalizeCountry, resolveAccountLocale } from './util/Locale'
@@ -273,7 +275,72 @@ export class MicrosoftRewardsBot {
         }
     }
 
+    private loadClashConfig(email?: string): ClashConfig | undefined {
+        try {
+            return getClashConfig()
+        } catch (error) {
+            const scope = email ? `账户 ${email} 的 ` : ''
+            this.logger.error(
+                'main',
+                'CLASH',
+                `${scope}Clash 配置无效，地区代理切换将不可用: ${error instanceof Error ? error.message : String(error)}`
+            )
+            return undefined
+        }
+    }
+
+    /**
+     * 启动前检查 Clash 地区切换配置。
+     * - 未启用但账户配置了 region：告警提示
+     * - 多集群并行且多个账户共用同一 selector 分组：强制串行，避免互相覆盖节点
+     */
+    private prepareClash(): void {
+        const clash = this.loadClashConfig()
+        if (!clash) return
+
+        const accountsWithRegion = this.accounts.filter(account => account.region)
+
+        if (!clash.enabled) {
+            if (accountsWithRegion.length) {
+                this.logger.warn(
+                    'main',
+                    'CLASH',
+                    `${accountsWithRegion.length} 个账户配置了 ACCOUNT_N_REGION，但未启用 Clash API` +
+                        '（设置 CLASH_API 或 CLASH_ENABLED=true），将跳过地区代理切换'
+                )
+            }
+            return
+        }
+
+        this.logger.info(
+            'main',
+            'CLASH',
+            `Clash 地区代理切换已启用 | API: ${clash.apiUrl} | 默认分组: ${clash.group} | 配置地区的账户: ${accountsWithRegion.length}`
+        )
+
+        if (this.config.clusters <= 1) return
+
+        const regionByGroup = new Map<string, string>()
+        for (const account of accountsWithRegion) {
+            const group = account.proxyGroup?.trim() || clash.group
+            const region = account.region?.trim().toLowerCase() ?? ''
+            const previous = regionByGroup.get(group)
+            if (previous !== undefined && previous !== region) {
+                this.logger.warn(
+                    'main',
+                    'CLASH',
+                    `多个账户共用 Clash 分组 "${group}" 但地区不同，无法并行切换；已强制 clusters=1 串行运行`
+                )
+                this.config.clusters = 1
+                return
+            }
+            regionByGroup.set(group, region)
+        }
+    }
+
     async run(): Promise<void> {
+        if (cluster.isPrimary) this.prepareClash()
+
         const totalAccounts = this.accounts.length
         const runStartTime = Date.now()
 
@@ -515,6 +582,40 @@ export class MicrosoftRewardsBot {
         await sendClawBot(clawbot, content)
     }
 
+    private async applyAccountRegionProxy(account: Account): Promise<void> {
+        if (!account.region) return
+
+        const clash = this.loadClashConfig(account.email)
+        if (!clash) return
+        if (!clash.enabled) return
+
+        try {
+            const selection = await applyRegionProxy(account, clash)
+            if (!selection) return
+
+            const change = selection.changed
+                ? `${selection.previous ?? '未设置'} -> ${selection.node}`
+                : `已是 ${selection.node}，无需切换`
+
+            const matchSource = selection.matchedBy === 'map' ? '映射' : '关键字'
+            this.logger.info(
+                'main',
+                'CLASH',
+                `地区代理就绪 | 账户: ${account.email} | 地区: ${selection.region} | 分组: ${selection.group} | ${change} | 匹配: ${matchSource}`
+            )
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            if (clash.strict) {
+                throw new Error(`Clash 地区代理切换失败: ${message}`)
+            }
+            this.logger.error(
+                'main',
+                'CLASH',
+                `地区代理切换失败，继续使用当前代理 | 账户: ${account.email} | ${message}`
+            )
+        }
+    }
+
     private async runTasks(accounts: Account[], runStartTime: number): Promise<AccountStats[]> {
         const accountStats: AccountStats[] = []
 
@@ -529,6 +630,8 @@ export class MicrosoftRewardsBot {
             this.userData.timezoneOffset = String(new Date().getTimezoneOffset())
 
             try {
+                await this.applyAccountRegionProxy(account)
+
                 const cachedRegion =
                     account.geoLocale === 'auto' ? loadResolvedRegion(this.config.sessionPath, accountEmail) : undefined
                 this.accountLocale = resolveAccountLocale(account, cachedRegion)

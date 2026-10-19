@@ -144,7 +144,7 @@
     npx patchright install chromium
     ```
 
-5. 复制 `env.example` 为 `.env`，填入账户信息；国内账号推荐保留默认的 `ACCOUNT_1_LANG_CODE=zh-CN`、`ACCOUNT_1_GEO_LOCALE=CN`
+5. 复制 `.env.example` 为 `.env`，填入账户信息；国内账号推荐保留默认的 `ACCOUNT_1_LANG_CODE=zh-CN`、`ACCOUNT_1_GEO_LOCALE=CN`
 6. 复制 `config.example.json` 为 `config.json`（项目根目录），按需修改
 7. 预构建（安装依赖与浏览器）：
 
@@ -181,7 +181,7 @@
 ### 1. 准备账号文件（.env）
 
 ```bash
-cp env.example .env
+cp .env.example .env
 ```
 
 编辑 `.env`，至少填一个账号：
@@ -191,7 +191,7 @@ ACCOUNT_1_EMAIL=you@example.com
 ACCOUNT_1_PASSWORD=your_password
 ```
 
-> 多账号按 `ACCOUNT_2_*`、`ACCOUNT_3_*` 递增（编号无需连续，按编号升序运行）。完整字段见 `env.example`。
+> 多账号按 `ACCOUNT_2_*`、`ACCOUNT_3_*` 递增（编号无需连续，按编号升序运行）。完整字段见 `.env.example`。
 
 > ⚠️ **Docker 用户注意：`.env` 不会自动传入容器**。Compose 只把同目录 `.env` 用于变量替换；若你自行编写/裁剪了 `compose.yaml`，必须保留 `env_file` 段（本仓库模板已内置），否则容器里一个账号都读不到：
 >
@@ -455,6 +455,55 @@ docker compose restart          # 重启（不重建）
 - HTTP 代理认证：`ACCOUNT_N_PROXY_USERNAME` / `ACCOUNT_N_PROXY_PASSWORD`（Patchright 不支持 SOCKS 浏览器认证）
 - 查询源请求代理：`ACCOUNT_N_PROXY_HTTP=true` 并配置 `ACCOUNT_N_PROXY_*`
 
+**按账户自动切换 Clash 地区节点**（可选，适合 Clash / mihomo / OpenClash）：
+
+脚本会在处理每个账户前调用 Clash 控制 API，把指定 selector 分组切换到该账户 `ACCOUNT_N_REGION` 对应的地区节点，然后再启动浏览器。
+
+- **路由器透明代理**（TUN / redir / tproxy）：只切换分组即可，不需要配置 `ACCOUNT_N_PROXY_URL`。
+- **浏览器代理模式**：额外把 `ACCOUNT_N_PROXY_URL` / `ACCOUNT_N_PROXY_PORT` 指向 Clash 的 mixed-port。
+
+```dotenv
+CLASH_API=http://192.168.1.1:9090
+CLASH_SECRET=your_secret
+# 必须换成 Microsoft 流量实际命中的 selector 分组
+CLASH_PROXY_GROUP=Ⓜ️ 微软服务
+# 值可为完整节点名，也可为逗号分隔的多个关键字；cn 使用分组内的直连项
+REGION_MAP={"cn":"🎯 全球直连","us":"美国,US,United States","hk":"香港,Hong Kong,HK"}
+
+# ── 账户 1：国内直连 ──
+ACCOUNT_1_REGION=cn
+
+# ── 账户 2：美国节点 ──
+ACCOUNT_2_REGION=us
+```
+
+| 变量                    | 描述                                                                 | 默认值   |
+| ----------------------- | -------------------------------------------------------------------- | -------- |
+| `CLASH_API`             | Clash 控制 API（OpenClash / mihomo 的 external-controller）          | 未设置   |
+| `CLASH_SECRET`          | 控制 API 密钥，填写后请求携带 `Authorization: Bearer`                | 空       |
+| `CLASH_ENABLED`         | 显式开关；不设置时由 `CLASH_API` 是否存在决定                        | 自动     |
+| `CLASH_PROXY_GROUP`     | 默认 selector 分组名，必须是 Microsoft 流量实际命中的分组            | `GLOBAL` |
+| `REGION_MAP`            | 地区代码到节点名/关键字的 JSON 映射；支持逗号分隔的多个候选          | `{}`     |
+| `REGION_KEYWORDS`       | 追加地区关键字，与内置别名合并                                       | `{}`     |
+| `ACCOUNT_N_REGION`      | 账户地区代码，设置后才触发切换                                       | 未设置   |
+| `ACCOUNT_N_PROXY_GROUP` | 账户专用 selector 分组，覆盖 `CLASH_PROXY_GROUP`                     | 未设置   |
+| `CLASH_TIMEOUT_MS`      | 控制 API 请求超时（毫秒）                                            | `5000`   |
+| `CLASH_SWITCH_DELAY_MS` | 切换后等待时间（毫秒）                                               | `1000`   |
+| `CLASH_VERIFY`          | 切换后回读分组确认已生效                                             | `true`   |
+| `CLASH_STRICT`          | 切换失败时让该账户失败；`false` 则告警并沿用当前节点                 | `false`  |
+
+匹配规则：
+
+- `CLASH_PROXY_GROUP` / `ACCOUNT_N_PROXY_GROUP` 支持弱匹配：忽略大小写、emoji、空格和标点。例如配置 `微软服务` 也能命中实际分组 `Ⓜ️ 微软服务`，配置 `手动切换` 能命中 `🚀 手动切换`。
+- `REGION_MAP` 的值优先按完整节点名匹配，其次按逗号分隔的候选逐个匹配，最后按关键字模糊匹配。
+- 内置关键字已覆盖 `us/USA/United States/美国/美國/美区/美服/北美`、`hk/Hong Kong/香港`、`jp/Japan/日本`、`sg/新加坡`、`tw/台湾/臺灣`、`kr/韩国/韓國`、`gb/uk/英国`、`de/德国`、`fr/法国`、`nl/荷兰`、`ca/加拿大`、`tr/土耳其`、`in/印度`、`vn/越南`、`cn/中国/大陆/直连`、`os/海外` 等。
+- ASCII 关键字按"非字母"边界匹配：`us` 能命中 `US01`、`US-Node`、`🇺🇸 US`，但不会误中 `Russia`、`Australia`；`ca` 不会误中 `Canada`（由 `canada` 关键字命中）。中文按子串匹配。
+- 节点名匹配忽略大小写；自定义节点命名可用 `REGION_KEYWORDS` 追加，例如 `{"us":["美区","美服"],"hk":["港","深港"]}`。
+- `CLASH_PROXY_GROUP` 必须是 Microsoft Rewards 流量**实际命中**的 selector 分组；使用规则分流时 `GLOBAL` 可能不生效，请改成 `Ⓜ️ 微软服务`、`🚀 节点选择` 等实际策略组。
+- `clusters > 1` 且多个账户共用同一分组时无法并行切换，脚本会自动降为串行；为每个账户配置独立的 `ACCOUNT_N_PROXY_GROUP` 可保持并行。
+- Docker 中访问宿主机 Clash：Linux 用宿主机局域网 IP（如 `192.168.1.1`），macOS / Windows 可用 `host.docker.internal`。
+- 可用 `npm run region:list` 查看分组与当前节点，`npm run region:switch -- us` 手动切换，`npm run region:switch -- us --dry-run` 只解析不切换（需先 `npm run build`）。
+
 > ⚠️ `ignoreCertificateErrors` 会削弱整个浏览器上下文的 TLS 保护，仅在受信拦截代理无法出示有效证书时开启。
 
 </details>
@@ -577,7 +626,7 @@ gmya.net 免费档对连续请求有频率限制。解决方法：
 
 不能。本分支与 v3 及更早版本**均不兼容**：
 
-- 账号迁移到 `.env`（`ACCOUNT_1_EMAIL` 等，参考 `env.example`）
+- 账号迁移到 `.env`（`ACCOUNT_1_EMAIL` 等，参考 `.env.example`）
 - 配置文件基于本分支 `config.example.json` 重新生成
 
 </details>
