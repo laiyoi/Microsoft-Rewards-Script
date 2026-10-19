@@ -8,8 +8,11 @@ services:
         container_name: microsoft-rewards-script
         restart: unless-stopped
         volumes:
-            - ./config:/usr/src/microsoft-rewards-script/dist/config
-            - ./sessions:/usr/src/microsoft-rewards-script/dist/browser/sessions
+            # 与 entrypoint / 应用实际使用的路径保持一致（cwd 为项目根目录）：
+            #   config.json -> /usr/src/microsoft-rewards-script/config/config.json
+            #   sessions   -> /usr/src/microsoft-rewards-script/sessions/sessions.db
+            - ./config:/usr/src/microsoft-rewards-script/config
+            - ./sessions:/usr/src/microsoft-rewards-script/sessions
         env_file:
             - path: .env
         environment:
